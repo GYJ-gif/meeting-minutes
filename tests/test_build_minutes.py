@@ -38,6 +38,7 @@ class MeetingMinutesSkillTests(unittest.TestCase):
             self.fail("build_minutes.py is not implemented")
 
         content = {
+            "recorder": "郭源杰",
             "location": "实验楼B515会议室",
             "participants": ["郭源杰", "李豹"],
             "topics": ["同位素材料", "叔丁胺合成"],
@@ -92,6 +93,8 @@ class MeetingMinutesSkillTests(unittest.TestCase):
         if module is None:
             self.fail("build_minutes.py is not implemented")
         content = {
+            "recorder": "郭源杰",
+            "participants": ["郭源杰"],
             "topics": [],
             "sections": [],
             "conclusions": [],
@@ -108,9 +111,10 @@ class MeetingMinutesSkillTests(unittest.TestCase):
         with zipfile.ZipFile(TEMPLATE) as archive:
             names = archive.namelist()
             document_xml = archive.read("word/document.xml").decode("utf-8")
-        self.assertFalse(any(name.startswith("word/media/") for name in names))
-        self.assertNotIn("2026年5月11日", document_xml)
-        self.assertNotIn("叔丁胺合成方案优化", document_xml)
+            document_rels = archive.read("word/_rels/document.xml.rels").decode("utf-8")
+        self.assertNotIn("relationships/image", document_rels)
+        self.assertNotIn("2026年3月5日", document_xml)
+        self.assertNotIn("PCOS试剂盒", document_xml)
 
 
 if __name__ == "__main__":

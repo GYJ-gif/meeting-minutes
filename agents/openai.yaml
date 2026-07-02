@@ -1,5 +1,5 @@
 interface:
-  display_name: "材料部会议纪要"
-  short_description: "从逐字稿和主题生成规范的材料部 DOCX 会议纪要"
-  default_prompt: "使用 $meeting-minutes 根据会议逐字稿和主题生成材料部会议纪要。"
+  display_name: "交流会议纪要"
+  short_description: "从逐字稿、主题和指定人员生成生检模板 DOCX 纪要"
+  default_prompt: "使用 $meeting-minutes 根据逐字稿、主题、纪要人员和参会人员生成交流会议纪要。"
 
