@@ -27,7 +27,11 @@ description: Use when a user provides a Chinese meeting transcript TXT, meeting 
 - 日期取 `Asia/Shanghai` 当天，不从文件名或逐字稿推断。
 - 标题按主题生成：单主题为“关于{主题}纪要”；2—3个主题全部列出；超过3个主题列出前三项并加“等议题”。
 - 纪要人员和参会人员使用本次指令指定值。
-- 跟进表沿用模板五列及 DXA 列宽 `[817, 4527, 1023, 1295, 1580]`。
+- 生成时保留模板骨架，仅替换文字和复制模板格式节点，不得清空正文后近似重建。
+- 一至五级章节标题沿用模板的蓝色 `#2C569A`、12 磅和加粗格式。
+- 第五标题必须明确显示为“五、交流图片”，并移除自动编号属性以避免缺号或重复编号。
+- 跟进表沿用模板五列及 DXA 列宽 `[817, 4527, 1023, 1295, 1580]`，同时保留原始边框、单元格边距、固定布局和居中方式。
+- 行动项超过预留行数时复制模板数据行后再写入，不得重新创建近似格式的表格。
 - 表格不得使用填充颜色，包括表头。
 - 无法确认的信息标注“待核验”或“待确认”，不得编造。
 - 最终列出 3—5 项最需要人工复核的信息。
@@ -87,4 +91,3 @@ description: Use when a user provides a Chinese meeting transcript TXT, meeting 
 - `assets/materials-department-minutes-template.docx`：基于2026生检交流纪要模板的脱敏资产，保留页眉品牌图形。
 - `scripts/build_minutes.py`：生成 DOCX。
 - `scripts/validate_minutes.py`：校验关键不变量。
-

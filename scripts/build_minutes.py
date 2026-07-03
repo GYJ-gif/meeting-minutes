@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 from datetime import date, datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt
+from docx.text.paragraph import Paragraph
 
 
 TABLE_HEADERS = ["序号", "跟进事宜", "负责人", "截止日期", "备注"]
@@ -178,6 +180,82 @@ def _add_actions_table(doc: Document, actions: list[dict[str, Any]]) -> None:
                     _set_run_font(run, bold=(row_index == 0))
 
 
+def _find_paragraph(doc: Document, text: str):
+    try:
+        return next(paragraph for paragraph in doc.paragraphs if paragraph.text == text)
+    except StopIteration as exc:
+        raise ValueError(f"模板缺少定位标记：{text}") from exc
+
+
+def _replace_paragraph_text(paragraph, text: str, *, bold: bool | None = None) -> None:
+    run = paragraph.runs[0] if paragraph.runs else paragraph.add_run()
+    for extra in list(paragraph.runs[1:]):
+        paragraph._p.remove(extra._r)
+    run.text = str(text)
+    if bold is not None:
+        run.bold = bold
+
+
+def _remove_paragraph(paragraph) -> None:
+    paragraph._p.getparent().remove(paragraph._p)
+
+
+def _insert_before(marker, text: str, *, bold: bool = False, indent: bool = False):
+    paragraph_xml = deepcopy(marker._p)
+    marker._p.addprevious(paragraph_xml)
+    paragraph = Paragraph(paragraph_xml, marker._parent)
+    _replace_paragraph_text(paragraph, text, bold=bold)
+    paragraph.paragraph_format.first_line_indent = Pt(24) if indent else None
+    return paragraph
+
+
+def _populate_main_content(doc: Document, sections: list[dict[str, Any]]) -> None:
+    marker = _find_paragraph(doc, "{{MAIN_CONTENT}}")
+    source = sections or [{"title": "会议议题", "paragraphs": ["相关内容待核验。"]}]
+    for index, section in enumerate(source, start=1):
+        numeral = SECTION_NUMERALS[index - 1] if index <= len(SECTION_NUMERALS) else str(index)
+        title = str(section.get("title") or f"议题{index}").strip()
+        _insert_before(marker, f"{numeral}）{title}", bold=True)
+        for text in section.get("paragraphs") or ["相关内容待核验。"]:
+            _insert_before(marker, str(text).strip(), indent=True)
+    _remove_paragraph(marker)
+
+
+def _populate_conclusions(doc: Document, conclusions: list[Any]) -> None:
+    marker = _find_paragraph(doc, "{{CONCLUSIONS}}")
+    values = conclusions or ["本次会议未形成可确认的核心结论。"]
+    for value in values:
+        _insert_before(marker, str(value).strip())
+    _remove_paragraph(marker)
+
+
+def _replace_cell_text(cell, text: str, *, bold: bool | None = None) -> None:
+    paragraph = cell.paragraphs[0]
+    for extra in list(cell.paragraphs[1:]):
+        cell._tc.remove(extra._p)
+    _replace_paragraph_text(paragraph, text, bold=bold)
+    _remove_cell_fill(cell)
+
+
+def _fill_actions_table(table, actions: list[dict[str, Any]]) -> None:
+    required_data_rows = max(4, len(actions))
+    while len(table.rows) - 1 < required_data_rows:
+        table._tbl.append(deepcopy(table.rows[-1]._tr))
+    for index, header in enumerate(TABLE_HEADERS):
+        _replace_cell_text(table.rows[0].cells[index], header, bold=True)
+    for index, row in enumerate(table.rows[1:], start=1):
+        action = actions[index - 1] if index <= len(actions) else {}
+        values = [
+            str(index) if index <= 2 or action else "",
+            str(action.get("item", "")),
+            str(action.get("owner", "")),
+            str(action.get("deadline", "")),
+            str(action.get("notes", "")),
+        ]
+        for cell, value in zip(row.cells, values):
+            _replace_cell_text(cell, value, bold=False)
+
+
 def _normalize_review_items(content: dict[str, Any]) -> list[str]:
     items = [str(item).strip() for item in content.get("review_items", []) if str(item).strip()]
     for item in ("专业名称及产品名称", "关键数值", "负责人和截止日期"):
@@ -207,46 +285,26 @@ def build_minutes(content: dict[str, Any], output_path: str | Path, *, meeting_d
     participants = [str(item).strip() for item in content["participants"] if str(item).strip()]
 
     doc = Document(TEMPLATE_PATH)
-    _clear_body(doc)
-
     title_text = build_title(topics)
-    title = doc.add_paragraph()
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _format_paragraph(title, after=8, line=1.0)
-    _set_run_font(title.add_run(title_text), size=16, bold=True)
-
-    _add_heading(doc, "一、会议基本信息")
-    _add_labeled_line(doc, "会议时间：", f"{meeting_date.year}年{meeting_date.month}月{meeting_date.day}日")
-    _add_labeled_line(doc, "会议地点：", str(content.get("location") or "待核验"))
-    _add_labeled_line(doc, "主要事宜：", "、".join(topics))
-    _add_labeled_line(doc, "参与人员：", "、".join(participants))
-    _add_labeled_line(doc, "纪要人员：", recorder)
-
-    _add_heading(doc, "二、会议主要内容")
-    for index, section in enumerate(content.get("sections", []), start=1):
-        numeral = SECTION_NUMERALS[index - 1] if index <= len(SECTION_NUMERALS) else str(index)
-        _add_subheading(doc, f"{numeral}）{str(section.get('title') or f'议题{index}').strip()}")
-        for paragraph in section.get("paragraphs") or ["相关内容待核验。"]:
-            _add_body(doc, str(paragraph))
-
-    _add_heading(doc, "三、会议核心结论（如有）")
-    for conclusion in content.get("conclusions") or ["本次会议未形成可确认的核心结论。"]:
-        paragraph = doc.add_paragraph()
-        _format_paragraph(paragraph, after=2, line=1.35)
-        _set_run_font(paragraph.add_run(str(conclusion)))
-
-    _add_heading(doc, "四、跟进事宜及节点")
-    _add_actions_table(doc, content.get("actions") or [])
-    _add_labeled_line(doc, "下次交流预计时间：", str(content.get("next_meeting_date") or "待确认"), bold_label=False)
-    _add_labeled_line(doc, "预计议题：", _format_next_topics(content.get("next_topics")), bold_label=False)
-
-    _add_heading(doc, "交流图片")
-    _add_body(doc, "本次提供的逐字稿未附交流图片。", indent=False)
-    _add_body(doc, "*如涉及比较好的学习材料和要点可分享给大家共同学习", indent=False, bold=True)
-
     source_note = str(content.get("source_note") or "用户提供的会议逐字稿 TXT").strip()
-    _add_body(doc, f"资料来源：{source_note}。未进行外部联网检索。", indent=False)
-    _add_body(doc, "最需要人工复核的信息：" + "；".join(_normalize_review_items(content)) + "。", indent=False)
+    replacements = {
+        "{{TITLE}}": title_text,
+        "会议时间：{{MEETING_DATE}}": f"会议时间：{meeting_date.year}年{meeting_date.month}月{meeting_date.day}日",
+        "会议地点：{{LOCATION}}": f"会议地点：{str(content.get('location') or '待核验')}",
+        "主要事宜：{{TOPICS}}": f"主要事宜：{'、'.join(topics)}",
+        "参与人员：{{PARTICIPANTS}}": f"参与人员：{'、'.join(participants)}",
+        "纪要人员：{{RECORDER}}": f"纪要人员：{recorder}",
+        "下次交流预计时间：{{NEXT_MEETING_DATE}}": f"下次交流预计时间：{str(content.get('next_meeting_date') or '待确认')}",
+        "预计议题：{{NEXT_TOPICS}}": f"预计议题：{_format_next_topics(content.get('next_topics'))}",
+        "{{IMAGE_NOTE}}": "本次提供的逐字稿未附交流图片。",
+        "{{SOURCE_NOTE}}": f"资料来源：{source_note}。未进行外部联网检索。",
+        "{{REVIEW_ITEMS}}": "最需要人工复核的信息：" + "；".join(_normalize_review_items(content)) + "。",
+    }
+    for marker, value in replacements.items():
+        _replace_paragraph_text(_find_paragraph(doc, marker), value)
+    _populate_main_content(doc, content.get("sections") or [])
+    _populate_conclusions(doc, content.get("conclusions") or [])
+    _fill_actions_table(doc.tables[0], content.get("actions") or [])
 
     doc.core_properties.title = title_text
     doc.core_properties.subject = "、".join(topics)
@@ -302,4 +360,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
