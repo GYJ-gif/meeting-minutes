@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+_qa*/
+work/
+output/
+*.txt
+*.docx
+!assets/materials-department-minutes-template.docx
+content*.json
